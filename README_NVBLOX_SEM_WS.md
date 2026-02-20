@@ -254,3 +254,73 @@ PT에서 강조 포인트:
 - 입력 품질: depth 해상도/FPS/노이즈
 - 위치 품질: TF 품질(`odom -> base_link -> camera0_link`)
 - 연산 품질: voxel size/업데이트 주기(정밀도 vs 속도)
+
+## 10) PT용 아키텍처(한 장 요약)
+
+발표 슬라이드에 아래 흐름을 그대로 넣으면 됨:
+
+```text
+RealSense D455
+  └─ /camera0/depth/image_rect_raw
+      └─ topic_tools relay
+          └─ /camera0/realsense_splitter_node/output/depth
+              └─ nvblox_node
+                  ├─ /nvblox_node/mesh
+                  ├─ /nvblox_node/static_map_slice
+                  └─ /nvblox_node/static_esdf_pointcloud
+                      └─ RViz2
+
+TF 체인(필수):
+odom -> base_link -> camera0_link
+```
+
+핵심 메시지:
+1. 입력 토픽(Depth)
+2. 위치 토픽(TF)
+3. 재구성 엔진(nvblox)
+4. 시각화(RViz)
+
+## 11) 데모 성공/실패 기준 (체크리스트)
+
+### 11-1. 성공 기준
+1. `ros2 topic info /camera0/realsense_splitter_node/output/depth -v`에서 `Publisher count > 0`
+2. `ros2 run tf2_ros tf2_echo odom camera0_link`가 연속 출력
+3. `nvblox.launch.py` 실행 시 `libgxf_isaac_optimizer.so` 에러 없음
+4. RViz에서 mesh 또는 map slice가 시간에 따라 갱신
+
+### 11-2. 실패 패턴별 빠른 분기
+1. `Package 'topic_tools' not found`
+- `sudo apt install -y ros-humble-topic-tools` (컨테이너 안)
+2. `Lookup transform failed for frame camera0_link`
+- TF 미구성. 최소 `odom -> base_link -> camera0_link` 필요
+3. `libgxf_isaac_optimizer.so: cannot open shared object file`
+- 4-5의 `LD_LIBRARY_PATH` 설정 누락
+4. 토픽은 보이는데 `hz`가 안 잡힘
+- `BEST_EFFORT` QoS 영향 가능성. `echo --once --qos-profile sensor_data`로 확인
+
+## 12) 호스트 vs 컨테이너 빌드 원칙 (누락 보완)
+
+중요 원칙:
+1. 실행 환경과 빌드 환경을 맞춘다
+2. 호스트 빌드 산출물을 컨테이너 실행에 섞지 않는다
+3. 컨테이너 빌드 산출물을 호스트 실행에 섞지 않는다
+
+실무 권장:
+1. nvblox 데모는 컨테이너에서 빌드/실행
+2. UGV/Tracer 실사용은 호스트에서 별도 빌드/실행
+3. 워크스페이스는 같아도 `source`는 각 환경에서 다시 수행
+
+## 13) PT 발표 구조 샘플 (5~7분)
+
+1. 문제정의 (30초)
+- Jetson에서 실시간 3D 재구성 필요, 경량 파이프라인 필요
+2. 아키텍처 (1분)
+- Camera -> relay -> nvblox -> RViz + TF 체인
+3. 원리 (1분)
+- TSDF/ESDF/mesh의 역할
+4. 구현/운영 이슈 (2분)
+- topic_tools 미설치, TF 누락, GXF 라이브러리 경로 이슈
+5. 해결 전략 (1분)
+- 표준 실행 순서, LD_LIBRARY_PATH 고정, 체크리스트 기반 진단
+6. 결과와 다음 단계 (1분)
+- static 모드 검증 완료 후, 다음 단계는 odom 품질 고도화와 동적 환경 대응
